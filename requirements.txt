@@ -1,0 +1,7 @@
+streamlit
+pandas
+requests
+cloudinary
+Pillow
+openpyxl
+qrcode
