@@ -10,8 +10,45 @@ import platform
 from pathlib import Path
 import cloudinary
 import cloudinary.uploader
+import plotly.graph_objects as go
+import plotly.express as px
+from fpdf import FPDF
+from streamlit_option_menu import option_menu
 
-st.set_page_config(page_title="WA Sender", layout="centered")
+st.set_page_config(page_title="WA Sender", layout="wide")
+
+# --- Inisialisasi session_state jika belum ada ---
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+if "appkey" not in st.session_state:
+    st.session_state.appkey = ""
+if "authkey" not in st.session_state:
+    st.session_state.authkey = ""
+if "log_df" not in st.session_state:
+    st.session_state.log_df = pd.DataFrame()
+if "manual_data" not in st.session_state:
+    st.session_state.manual_data = []
+if "data_excel" not in st.session_state:
+    st.session_state.data_excel = pd.DataFrame()
+
+# --- Fungsi Kirim Pesan (didefinisikan di atas agar tidak error) ---
+def send_text_message(number, message, appkey, authkey):
+    url = "https://app.wapanels.com/api/create-message"
+    payload = {'appkey': appkey, 'authkey': authkey, 'to': number, 'message': message}
+    try:
+        response = requests.post(url, data=payload)
+        return ("✅ Berhasil", response.text) if response.status_code == 200 else ("❌ Gagal", response.text)
+    except Exception as e:
+        return "❌ Error", str(e)
+
+def send_image_message(number, caption, image_url, appkey, authkey):
+    url = "https://app.wapanels.com/api/create-message"
+    payload = {'appkey': appkey, 'authkey': authkey, 'to': number, 'message': caption, 'file': image_url}
+    try:
+        response = requests.post(url, data=payload)
+        return ("✅ Berhasil", response.text) if response.status_code == 200 else ("❌ Gagal", response.text)
+    except Exception as e:
+        return "❌ Error", str(e)
 
 # Konfigurasi Cloudinary
 cloudinary.config(
@@ -20,236 +57,188 @@ cloudinary.config(
     api_secret='RbhZ9ct4I4dH_WX7_1Qb339acDw'
 )
 
-# --- Judul ---
-st.title("\U0001F4F2 Dashboard Blasting Bengkel Version 0.1")
-st.markdown("Versi interaktif menggunakan API WA Panel dengan Excel, input manual, dan dukungan gambar.")
+# --- Halaman Login Modern ---
+if not st.session_state.logged_in:
+    st.markdown("""
+        <div style='text-align:center;'>
+            <h1 style='color:#FFA500;'>🔐 Login ke Dashboard</h1>
+    """, unsafe_allow_html=True)
 
-# --- Sidebar Settings ---
-st.sidebar.image("https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEifCMgTSVQ5XOVA3899Yr4Ae1sA3puuYLe95e0iMVW0QpImq0_LiT1zDEnlgRuhrscLXx_sRJtmVYCaEpT6PhcRvSiSUIoEQZcNUySvcLcnrE3S_F3WT-NV8j6POv34VgPKkVheW-WXUGG78m-d05Zn_uL7jeKw0z8BnQefIQ5oqrxDpUVU_DII7jOq/s1600/LOGO.png", width=180)
-st.sidebar.header("\U0001F512 Pengaturan API & Pesan")
-
-# --- Session State ---
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-if "appkey" not in st.session_state:
-    st.session_state.appkey = ""
-if "authkey" not in st.session_state:
-    st.session_state.authkey = ""
-
-if st.session_state.logged_in:
-    st.sidebar.success("\U0001F512 Terhubung ke API WA Panel")
-    st.sidebar.markdown(f"**App Key:** `{st.session_state.appkey[:4]}***`")
-    if st.sidebar.button("\U0001F512 Logout"):
-        st.session_state.logged_in = False
-        st.session_state.appkey = ""
-        st.session_state.authkey = ""
-        st.rerun()
-else:
-    with st.sidebar.form("login_form"):
-        appkey_input = st.text_input("App Key", type="password")
-        authkey_input = st.text_input("Auth Key", type="password")
-        login_submit = st.form_submit_button("\U0001F513 Login")
+    with st.form("login_form"):
+        appkey_input = st.text_input("🗝️ App Key", type="password", placeholder="Masukkan App Key")
+        authkey_input = st.text_input("🔐 Auth Key", type="password", placeholder="Masukkan Auth Key")
+        login_submit = st.form_submit_button("🚀 Masuk")
         if login_submit:
             if appkey_input and authkey_input:
                 st.session_state.appkey = appkey_input
                 st.session_state.authkey = authkey_input
                 st.session_state.logged_in = True
-                st.success("✅ Berhasil login ke API.")
+                st.toast("Selamat datang kembali, Admin 👋")
+                st.success("Login berhasil! Memuat dashboard...")
                 st.rerun()
             else:
-                st.warning("App Key dan Auth Key wajib diisi.")
+                st.error("❌ Mohon masukkan App Key dan Auth Key dengan benar.")
 
-appkey = st.session_state.get("appkey", "")
-authkey = st.session_state.get("authkey", "")
+    st.markdown("""
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+    st.stop()
 
-message_template = st.sidebar.text_area("✏️ Template Pesan (gunakan {nama})", "Halo {nama}, ini adalah pesan testing dari WA API via Python.")
-delay_input = st.sidebar.number_input("⏱️ Jeda antar pesan (detik)", min_value=1, value=5)
-
-# --- Upload Gambar (opsional) ---
-st.sidebar.header("🖼️ Pengaturan Gambar (Opsional)")
-image_file = st.sidebar.file_uploader("Unggah Gambar", type=["jpg", "jpeg", "png"])
-caption = st.sidebar.text_area("📎 Caption untuk Gambar (gunakan {nama})", "Hai {nama}, ini gambar untukmu.")
-
-# --- Upload Excel ---
-st.subheader("📤 Upload File Excel (opsional)")
-uploaded_file = st.file_uploader("Unggah file Excel (.xlsx) berisi kolom: Nama, Nomor", type=["xlsx"])
-data_excel = pd.DataFrame()
-
-if uploaded_file:
-    data_excel = pd.read_excel(uploaded_file)
-    if "Nama" not in data_excel.columns or "Nomor" not in data_excel.columns:
-        st.error("❌ Kolom wajib: 'Nama', 'Nomor'")
-        data_excel = pd.DataFrame()
-
-# --- Input Manual ---
-st.subheader("📥 Tambah Nomor Manual")
-
-if "manual_data" not in st.session_state:
-    st.session_state.manual_data = []
-
-with st.form("manual_form"):
-    col1, col2 = st.columns(2)
-    with col1:
-        nama_manual = st.text_input("Nama")
-    with col2:
-        nomor_manual = st.text_input("Nomor (format: 62xxx)")
-    submitted = st.form_submit_button("➕ Tambahkan ke Daftar")
-    if submitted:
-        if nama_manual and nomor_manual:
-            st.session_state.manual_data.append({"Nama": nama_manual, "Nomor": nomor_manual})
-            st.success(f"✅ Ditambahkan: {nama_manual} ({nomor_manual})")
-        else:
-            st.warning("Nama dan nomor tidak boleh kosong!")
-
-if st.session_state.manual_data:
-    st.write("📋 Data Manual:")
-    for i, entry in enumerate(st.session_state.manual_data):
-        col1, col2, col3, col4 = st.columns([3, 3, 1, 1])
-        with col1:
-            new_nama = st.text_input(f"Nama_{i}", value=entry["Nama"], label_visibility="collapsed")
-        with col2:
-            new_nomor = st.text_input(f"Nomor_{i}", value=entry["Nomor"], label_visibility="collapsed")
-        with col3:
-            if st.button("💾", key=f"simpan_{i}"):
-                st.session_state.manual_data[i]["Nama"] = new_nama
-                st.session_state.manual_data[i]["Nomor"] = new_nomor
-                st.success(f"✅ Data {new_nama} diperbarui")
-        with col4:
-            if st.button("❌", key=f"hapus_{i}"):
-                st.session_state.manual_data.pop(i)
-                st.rerun()
-
-    df_manual = pd.DataFrame(st.session_state.manual_data)
-    st.dataframe(df_manual)
-
-    col_reset, col_download = st.columns([1, 3])
-    with col_reset:
-        if st.button("🔄 Reset Semua Data Manual"):
-            st.session_state.manual_data = []
-            st.success("✅ Semua data manual telah dihapus")
-            st.rerun()
-    with col_download:
-        if not df_manual.empty:
-            csv_manual = df_manual.to_csv(index=False).encode('utf-8')
-            st.download_button("⬇️ Download Data Manual (CSV)", data=csv_manual, file_name="data_manual.csv", mime="text/csv")
-else:
-    df_manual = pd.DataFrame()
-
-# Gabungkan data Excel dan Manual
-df_all = pd.concat([data_excel, df_manual], ignore_index=True)
-
-# --- Fungsi Kirim Pesan ---
-def send_text_message(number, message, appkey, authkey):
-    url = "https://app.wapanels.com/api/create-message"
-    payload = {
-        'appkey': appkey,
-        'authkey': authkey,
-        'to': number,
-        'message': message
-    }
-    try:
-        response = requests.post(url, data=payload)
-        return ("✅ Berhasil", response.text) if response.status_code == 200 else ("❌ Gagal", response.text)
-    except Exception as e:
-        return "❌ Error", str(e)
-
-def send_image_message(number, caption, image_url, appkey, authkey):
-    try:
-        url = "https://app.wapanels.com/api/create-message"
-        payload = {
-            'appkey': appkey,
-            'authkey': authkey,
-            'to': number,
-            'message': caption,
-            'file': image_url
+# --- Menu Bar Modern dengan Logout ---
+with st.sidebar:
+    menu = option_menu(
+        "Dashboard Panel",
+        ["Pengaturan & Input", "Kirim Pesan", "Analisis Pengiriman", "Terminal", "🔒 Logout"],
+        icons=["gear", "send", "bar-chart", "terminal", "box-arrow-right"],
+        menu_icon="chat-dots",
+        default_index=0,
+        styles={
+            "container": {"padding": "5!important", "background-color": "#1E1E1E"},
+            "icon": {"color": "#FFA500", "font-size": "20px"},
+            "nav-link": {
+                "font-size": "16px",
+                "text-align": "left",
+                "margin": "0px",
+                "--hover-color": "#333333",
+                "color": "#CCCCCC",
+            },
+            "nav-link-selected": {
+                "background-color": "#FFA500",
+                "color": "black",
+                "font-weight": "bold"
+            },
         }
+    )
 
-        response = requests.post(url, data=payload)
-        return ("✅ Berhasil", response.text) if response.status_code == 200 else ("❌ Gagal", response.text)
+    if menu == "🔒 Logout":
+        st.session_state.logged_in = False
+        st.session_state.appkey = ""
+        st.session_state.authkey = ""
+        st.success("✅ Logout berhasil! Sampai jumpa.")
+        st.rerun()
 
-    except Exception as e:
-        return "❌ Error", str(e)
+st.title("📱 Dashboard Blasting Bengkel Version 0.2")
+st.markdown("Versi interaktif menggunakan API WA Panel dengan Excel, input manual, dan dukungan gambar.")
 
-# --- Tombol Kirim Pesan ---
-if not df_all.empty and st.session_state.logged_in and st.sidebar.button("🚀 Mulai Kirim Pesan"):
-    if not appkey or not authkey:
-        st.error("❗ App Key dan Auth Key wajib diisi")
-    else:
+# --- Konten Menu --
+if menu == "Pengaturan & Input":
+    st.subheader("📝 Pengaturan Pesan")
+    st.session_state.message_template = st.text_area("✏️ Template Pesan (gunakan {nama})", "Halo {nama}, ini adalah pesan testing dari WA API via Python.")
+    st.session_state.delay_input = st.number_input("⏱️ Jeda antar pesan (detik)", min_value=1, value=5)
+
+    st.subheader("🖼️ Upload Gambar (Opsional)")
+    st.session_state.image_file = st.file_uploader("Unggah Gambar", type=["jpg", "jpeg", "png"])
+    st.session_state.caption = st.text_area("📎 Caption untuk Gambar (gunakan {nama})", "Hai {nama}, ini gambar untukmu.")
+
+    st.subheader("📤 Upload File Excel")
+    uploaded_file = st.file_uploader("Unggah file Excel (.xlsx) berisi kolom: Nama, Nomor", type=["xlsx"])
+    if uploaded_file:
+        st.session_state.data_excel = pd.read_excel(uploaded_file)
+
+    st.subheader("📥 Tambah Nomor Manual")
+    with st.form("manual_form"):
+        nama_manual = st.text_input("Nama")
+        nomor_manual = st.text_input("Nomor (format: 62xxx)")
+        if st.form_submit_button("➕ Tambahkan") and nama_manual and nomor_manual:
+            st.session_state.manual_data.append({"Nama": nama_manual, "Nomor": nomor_manual})
+            st.success("✅ Ditambahkan")
+
+    if st.session_state.manual_data:
+        df_manual = pd.DataFrame(st.session_state.manual_data)
+        st.dataframe(df_manual)
+        csv_manual = df_manual.to_csv(index=False).encode("utf-8")
+        st.download_button("⬇️ Download Manual CSV", csv_manual, "data_manual.csv", "text/csv")
+
+elif menu == "Kirim Pesan":
+    data_excel = st.session_state.get("data_excel", pd.DataFrame())
+    df_all = pd.concat([data_excel, pd.DataFrame(st.session_state.manual_data)], ignore_index=True)
+    if not df_all.empty and st.button("🚀 Mulai Kirim Pesan"):
         st.success("Mengirim pesan... Harap tunggu")
         log = []
-        terminal_output = st.empty()
-
         image_url = None
+        image_file = st.session_state.get("image_file")
         if image_file:
-            with st.spinner("⏫ Mengunggah ke Cloudinary..."):
-                result = cloudinary.uploader.upload(image_file, folder="whatsapp_uploads")
-                image_url = result.get("secure_url")
-
+            result = cloudinary.uploader.upload(image_file, folder="whatsapp_uploads")
+            image_url = result.get("secure_url")
         for idx, row in df_all.iterrows():
-            nama = str(row['Nama'])
-            nomor = str(row['Nomor'])
-            personalized_message = message_template.replace("{nama}", nama)
-            personalized_caption = caption.replace("{nama}", nama)
-
+            nama, nomor = row['Nama'], row['Nomor']
+            msg = st.session_state.message_template.replace("{nama}", nama)
+            cap = st.session_state.caption.replace("{nama}", nama)
             if image_file and image_url:
-                status, response_text = send_image_message(nomor, personalized_caption, image_url, appkey, authkey)
-                pesan_terkirim = personalized_caption
+                status, _ = send_image_message(nomor, cap, image_url, st.session_state.appkey, st.session_state.authkey)
+                pesan = cap
             else:
-                status, response_text = send_text_message(nomor, personalized_message, appkey, authkey)
-                pesan_terkirim = personalized_message
+                status, _ = send_text_message(nomor, msg, st.session_state.appkey, st.session_state.authkey)
+                pesan = msg
+            log.append({"Waktu": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Nama": nama, "Nomor": nomor, "Pesan": pesan, "Status": status})
+            time.sleep(st.session_state.delay_input)
+        st.session_state.log_df = pd.DataFrame(log)
+        st.success("✅ Pengiriman selesai")
 
-            waktu = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            log.append({
-                "Waktu": waktu,
-                "Nama": nama,
-                "Nomor": nomor,
-                "Pesan": pesan_terkirim,
-                "Status": status,
-                "Respon": response_text
-            })
+elif menu == "Analisis Pengiriman":
+    log_df = st.session_state.log_df
+    if log_df.empty:
+        st.warning("Belum ada data pengiriman.")
+    else:
+        st.subheader("📊 Statistik Pengiriman")
+        berhasil = sum(log_df['Status'].str.contains("✅"))
+        gagal = sum(log_df['Status'].str.contains("❌"))
+        st.metric("📨 Total Pesan", len(log_df))
+        st.metric("✅ Berhasil", berhasil)
+        st.metric("❌ Gagal", gagal)
 
-            terminal_text = "\n".join(
-                [f"[{entry['Waktu']}] {entry['Status']} - {entry['Nama']} ({entry['Nomor']})"
-                 for entry in log]
-            )
-            terminal_output.code(terminal_text, language="bash")
-            time.sleep(delay_input)
+        st.subheader("📊 Bar Chart")
+        fig_bar = go.Figure(data=[
+            go.Bar(x=["Berhasil", "Gagal"], y=[berhasil, gagal], marker_color=["green", "red"], text=[berhasil, gagal], textposition="auto")
+        ])
+        st.plotly_chart(fig_bar)
 
-        log_df = pd.DataFrame(log)
-        st.subheader("📊 Log Pengiriman")
-        st.dataframe(log_df)
+        st.subheader("🥧 Pie Chart")
+        pie_fig = px.pie(names=["Berhasil", "Gagal"], values=[berhasil, gagal], color_discrete_sequence=["green", "red"])
+        st.plotly_chart(pie_fig)
+
+        st.subheader("⏱️ Timeline")
+        log_df['Waktu'] = pd.to_datetime(log_df['Waktu'])
+        fig_time = px.scatter(log_df, x="Waktu", y="Status", color="Status", hover_data=["Nama", "Nomor"])
+        st.plotly_chart(fig_time)
+
         csv = log_df.to_csv(index=False).encode("utf-8")
         st.download_button("⬇️ Download Log CSV", data=csv, file_name="log_pengiriman.csv", mime="text/csv")
 
-# --- Terminal Interaktif + Eksekusi dosen.sh ---
-st.markdown("---")
-st.subheader("🖥️ Terminal Interaktif (Deteksi Otomatis OS + Script dosen.sh)")
+        if st.button("📄 Generate PDF Laporan"):
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.set_font("Arial", size=12)
+            pdf.cell(200, 10, txt="Laporan Pengiriman WA", ln=True, align='C')
+            pdf.ln(10)
+            for idx, row in log_df.iterrows():
+                pdf.multi_cell(0, 10, txt=f"[{row['Waktu']}] {row['Status']} - {row['Nama']} ({row['Nomor']})", align='L')
+            pdf_output = "laporan_pengiriman.pdf"
+            pdf.output(pdf_output)
+            with open(pdf_output, "rb") as f:
+                st.download_button("⬇️ Download PDF", data=f.read(), file_name=pdf_output, mime="application/pdf")
 
-with st.expander("💻 Terminal & Script Eksternal"):
+elif menu == "Terminal":
+    st.subheader("🖥️ Terminal Interaktif (Deteksi Otomatis OS + Script dosen.sh)")
     current_os = platform.system()
     st.info(f"🧠 Sistem Operasi terdeteksi: **{current_os}**")
-
-    terminal_cmd = st.text_input("Ketik perintah terminal", placeholder="contoh: echo hello, ping google.com")
-    run_terminal = st.button("▶️ Jalankan Perintah Terminal")
-
-    if run_terminal and terminal_cmd.strip():
+    terminal_cmd = st.text_input("Ketik perintah terminal")
+    if st.button("▶️ Jalankan") and terminal_cmd:
         try:
             if current_os == "Windows":
                 result = subprocess.run(terminal_cmd, shell=True, capture_output=True, text=True, timeout=20)
             else:
                 result = subprocess.run(["bash", "-c", terminal_cmd], capture_output=True, text=True, timeout=20)
-
             st.code(result.stdout or "(tidak ada output)", language="bash")
             if result.stderr:
                 st.error(result.stderr)
         except subprocess.TimeoutExpired:
-            st.error("⏱️ Timeout: Perintah terlalu lama dijalankan.")
+            st.error("⏱️ Timeout")
         except Exception as e:
-            st.error(f"❌ Error menjalankan perintah: {str(e)}")
+            st.error(f"❌ Error: {str(e)}")
 
     st.divider()
-
-    # Jalankan script dosen.sh jika ada
     script_path = Path("dosen.sh")
     if script_path.exists():
         st.success("✅ Script `dosen.sh` ditemukan.")
@@ -262,4 +251,4 @@ with st.expander("💻 Terminal & Script Eksternal"):
             except Exception as e:
                 st.error(f"❌ Gagal menjalankan script: {str(e)}")
     else:
-        st.warning("⚠️ File `dosen.sh` tidak ditemukan. Pastikan berada di direktori yang sama.")
+        st.warning("⚠️ File `dosen.sh` tidak ditemukan.")
