@@ -1,7 +1,9 @@
 streamlit
-pandas
 requests
-cloudinary
+pandas
 Pillow
+cloudinary
+plotly
+fpdf
 openpyxl
-qrcode
+streamlit-option-menu
