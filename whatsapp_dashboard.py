@@ -118,7 +118,7 @@ with st.sidebar:
         st.success("✅ Logout berhasil! Sampai jumpa.")
         st.rerun()
 
-st.title("📱 Dashboard Blasting Bengkel Version 0.2")
+st.title("📱 Dashboard Blasting Bengkel Version 0.1")
 st.markdown("Versi interaktif menggunakan API WA Panel dengan Excel, input manual, dan dukungan gambar.")
 
 # --- Konten Menu --
@@ -153,71 +153,168 @@ if menu == "Pengaturan & Input":
 elif menu == "Kirim Pesan":
     data_excel = st.session_state.get("data_excel", pd.DataFrame())
     df_all = pd.concat([data_excel, pd.DataFrame(st.session_state.manual_data)], ignore_index=True)
-    if not df_all.empty and st.button("🚀 Mulai Kirim Pesan"):
-        st.success("Mengirim pesan... Harap tunggu")
-        log = []
-        image_url = None
-        image_file = st.session_state.get("image_file")
-        if image_file:
-            result = cloudinary.uploader.upload(image_file, folder="whatsapp_uploads")
-            image_url = result.get("secure_url")
-        for idx, row in df_all.iterrows():
-            nama, nomor = row['Nama'], row['Nomor']
-            msg = st.session_state.message_template.replace("{nama}", nama)
-            cap = st.session_state.caption.replace("{nama}", nama)
-            if image_file and image_url:
-                status, _ = send_image_message(nomor, cap, image_url, st.session_state.appkey, st.session_state.authkey)
-                pesan = cap
-            else:
-                status, _ = send_text_message(nomor, msg, st.session_state.appkey, st.session_state.authkey)
-                pesan = msg
-            log.append({"Waktu": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Nama": nama, "Nomor": nomor, "Pesan": pesan, "Status": status})
-            time.sleep(st.session_state.delay_input)
-        st.session_state.log_df = pd.DataFrame(log)
-        st.success("✅ Pengiriman selesai")
+    
+    if not df_all.empty:
+        st.subheader("🚀 Kirim Pesan Otomatis")
+        if st.button("📨 Mulai Kirim Pesan"):
+            with st.spinner("Mengirim pesan..."):
+                log = []
+                image_url = None
+                image_file = st.session_state.get("image_file")
+
+                if image_file:
+                    upload_result = cloudinary.uploader.upload(image_file, folder="whatsapp_uploads")
+                    image_url = upload_result.get("secure_url")
+
+                progress_bar = st.progress(0, text="Memulai pengiriman...")
+                total = len(df_all)
+
+                for idx, row in df_all.iterrows():
+                    nama, nomor = row["Nama"], row["Nomor"]
+                    msg = st.session_state.message_template.replace("{nama}", nama)
+                    cap = st.session_state.caption.replace("{nama}", nama)
+
+                    if image_file and image_url:
+                        status, _ = send_image_message(nomor, cap, image_url, st.session_state.appkey, st.session_state.authkey)
+                        pesan = cap
+                    else:
+                        status, _ = send_text_message(nomor, msg, st.session_state.appkey, st.session_state.authkey)
+                        pesan = msg
+
+                    waktu = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                    # Tampilkan status langsung dalam style warna
+                    icon = "✅" if "✅" in status else "❌"
+                    warna_status = "#22c55e" if "✅" in status else "#ef4444"
+                    warna_waktu = "#9ca3af"
+
+                    st.markdown(
+                        f"""
+                        <div style="
+                            background: #262626;
+                            border-left: 5px solid {warna_status};
+                            padding: 10px 15px;
+                            margin: 8px 0;
+                            border-radius: 10px;
+                            font-family: 'Segoe UI', sans-serif;
+                            color: white;
+                            box-shadow: 0 0 5px rgba(0,0,0,0.2);
+                        ">
+                            <div style="color: {warna_waktu}; font-size: 13px;">🕒 {waktu}</div>
+                            <div style="margin-top: 5px;">
+                                <span style="color: {warna_status}; font-weight: bold; font-size: 15px;">{icon} {status.split()[-1]}</span>
+                                <span style="color: #e5e7eb; font-size: 15px;"> ke <strong>{nama}</strong> (<code>{nomor}</code>)</span>
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+
+                    log.append({
+                        "Waktu": waktu,
+                        "Nama": nama,
+                        "Nomor": nomor,
+                        "Pesan": pesan,
+                        "Status": "✅ Berhasil" if "✅" in status else "❌ Gagal"
+                    })
+
+                    progress_bar.progress((idx + 1) / total, text=f"{int((idx + 1) / total * 100)}% selesai")
+                    time.sleep(st.session_state.delay_input)
+
+                st.session_state.log_df = pd.DataFrame(log)
+                st.success("✅ Semua pesan telah dikirim!")
+
+                # Tampilkan log sebagai tabel
+                st.subheader("📋 Log Pengiriman")
+                styled_log = st.session_state.log_df.style.applymap(
+                    lambda x: "color: green;" if x == "✅ Berhasil" else "color: red;", subset=["Status"]
+                )
+                st.dataframe(styled_log, use_container_width=True)
+
+                # Tombol download
+                csv_log = st.session_state.log_df.to_csv(index=False).encode("utf-8")
+                st.download_button("⬇️ Download Log CSV", data=csv_log, file_name="log_pengiriman.csv", mime="text/csv")
+    else:
+        st.warning("⚠️ Data kosong. Silakan upload file Excel atau masukkan nomor manual terlebih dahulu.")
 
 elif menu == "Analisis Pengiriman":
     log_df = st.session_state.log_df
+
     if log_df.empty:
-        st.warning("Belum ada data pengiriman.")
+        st.warning("⚠️ Belum ada data pengiriman untuk dianalisis.")
     else:
-        st.subheader("📊 Statistik Pengiriman")
+        st.subheader("📊 Ringkasan Statistik Pengiriman")
+
         berhasil = sum(log_df['Status'].str.contains("✅"))
         gagal = sum(log_df['Status'].str.contains("❌"))
-        st.metric("📨 Total Pesan", len(log_df))
-        st.metric("✅ Berhasil", berhasil)
-        st.metric("❌ Gagal", gagal)
+        total = len(log_df)
 
-        st.subheader("📊 Bar Chart")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("📨 Total Pesan", total)
+        col2.metric("✅ Berhasil", berhasil, delta_color="normal")
+        col3.metric("❌ Gagal", gagal, delta_color="inverse")
+
+        st.divider()
+
+        st.subheader("📊 Grafik Bar: Jumlah Berhasil vs Gagal")
         fig_bar = go.Figure(data=[
-            go.Bar(x=["Berhasil", "Gagal"], y=[berhasil, gagal], marker_color=["green", "red"], text=[berhasil, gagal], textposition="auto")
+            go.Bar(
+                x=["Berhasil", "Gagal"],
+                y=[berhasil, gagal],
+                marker_color=["#22c55e", "#ef4444"],
+                text=[berhasil, gagal],
+                textposition="auto"
+            )
         ])
-        st.plotly_chart(fig_bar)
+        fig_bar.update_layout(plot_bgcolor="#111111", paper_bgcolor="#111111", font_color="white")
+        st.plotly_chart(fig_bar, use_container_width=True)
 
-        st.subheader("🥧 Pie Chart")
-        pie_fig = px.pie(names=["Berhasil", "Gagal"], values=[berhasil, gagal], color_discrete_sequence=["green", "red"])
-        st.plotly_chart(pie_fig)
+        st.subheader("🥧 Diagram Pie")
+        pie_fig = px.pie(
+            names=["Berhasil", "Gagal"],
+            values=[berhasil, gagal],
+            color_discrete_sequence=["#22c55e", "#ef4444"],
+            hole=0.4
+        )
+        pie_fig.update_layout(paper_bgcolor="#111111", font_color="white")
+        st.plotly_chart(pie_fig, use_container_width=True)
 
-        st.subheader("⏱️ Timeline")
+        st.subheader("⏱️ Timeline Pengiriman")
         log_df['Waktu'] = pd.to_datetime(log_df['Waktu'])
-        fig_time = px.scatter(log_df, x="Waktu", y="Status", color="Status", hover_data=["Nama", "Nomor"])
-        st.plotly_chart(fig_time)
+        fig_time = px.scatter(
+            log_df,
+            x="Waktu",
+            y="Status",
+            color="Status",
+            hover_data=["Nama", "Nomor"],
+            color_discrete_map={
+                "✅ Berhasil": "#22c55e",
+                "❌ Gagal": "#ef4444"
+            }
+        )
+        fig_time.update_layout(paper_bgcolor="#111111", font_color="white")
+        st.plotly_chart(fig_time, use_container_width=True)
 
-        csv = log_df.to_csv(index=False).encode("utf-8")
-        st.download_button("⬇️ Download Log CSV", data=csv, file_name="log_pengiriman.csv", mime="text/csv")
+        st.subheader("📁 Unduh Data Log")
+        col_csv, col_pdf = st.columns(2)
 
-        if st.button("📄 Generate PDF Laporan"):
-            pdf = FPDF()
-            pdf.add_page()
-            pdf.set_font("Arial", size=12)
-            pdf.cell(200, 10, txt="Laporan Pengiriman WA", ln=True, align='C')
-            pdf.ln(10)
-            for idx, row in log_df.iterrows():
-                pdf.multi_cell(0, 10, txt=f"[{row['Waktu']}] {row['Status']} - {row['Nama']} ({row['Nomor']})", align='L')
-            pdf_output = "laporan_pengiriman.pdf"
-            pdf.output(pdf_output)
-            with open(pdf_output, "rb") as f:
-                st.download_button("⬇️ Download PDF", data=f.read(), file_name=pdf_output, mime="application/pdf")
+        with col_csv:
+            csv = log_df.to_csv(index=False).encode("utf-8")
+            st.download_button("⬇️ Download CSV", data=csv, file_name="log_pengiriman.csv", mime="text/csv", use_container_width=True)
+
+        with col_pdf:
+            if st.button("📄 Generate PDF Laporan", use_container_width=True):
+                pdf = FPDF()
+                pdf.add_page()
+                pdf.set_font("Arial", size=12)
+                pdf.cell(200, 10, txt="Laporan Pengiriman WA", ln=True, align='C')
+                pdf.ln(10)
+                for idx, row in log_df.iterrows():
+                    pdf.multi_cell(0, 10, txt=f"[{row['Waktu']}] {row['Status']} - {row['Nama']} ({row['Nomor']})", align='L')
+                pdf_output = "laporan_pengiriman.pdf"
+                pdf.output(pdf_output)
+                with open(pdf_output, "rb") as f:
+                    st.download_button("⬇️ Download PDF", data=f.read(), file_name=pdf_output, mime="application/pdf", use_container_width=True)
 
 elif menu == "Terminal":
     st.subheader("🖥️ Terminal Interaktif (Deteksi Otomatis OS + Script dosen.sh)")
