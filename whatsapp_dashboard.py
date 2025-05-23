@@ -37,7 +37,11 @@ def send_text_message(number, message, appkey, authkey):
     payload = {'appkey': appkey, 'authkey': authkey, 'to': number, 'message': message}
     try:
         response = requests.post(url, data=payload)
-        return ("✅ Berhasil", response.text) if response.status_code == 200 else ("❌ Gagal", response.text)
+        data = response.json()  # asumsi API mengembalikan JSON
+        if response.status_code == 200 and data.get("status") == "success":
+            return "✅ Berhasil", str(data)
+        else:
+            return "❌ Gagal", str(data)
     except Exception as e:
         return "❌ Error", str(e)
 
@@ -46,7 +50,11 @@ def send_image_message(number, caption, image_url, appkey, authkey):
     payload = {'appkey': appkey, 'authkey': authkey, 'to': number, 'message': caption, 'file': image_url}
     try:
         response = requests.post(url, data=payload)
-        return ("✅ Berhasil", response.text) if response.status_code == 200 else ("❌ Gagal", response.text)
+        data = response.json()
+        if response.status_code == 200 and data.get("status") == "success":
+            return "✅ Berhasil", str(data)
+        else:
+            return "❌ Gagal", str(data)
     except Exception as e:
         return "❌ Error", str(e)
 
