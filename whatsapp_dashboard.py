@@ -118,7 +118,7 @@ with st.sidebar:
         st.success("✅ Logout berhasil! Sampai jumpa.")
         st.rerun()
 
-st.title("📱 Dashboard Blasting Bengkel Version 0.1")
+st.title("📱 Dashboard Blasting Bengkel Version 0.2 Beta")
 st.markdown("Versi interaktif menggunakan API WA Panel dengan Excel, input manual, dan dukungan gambar.")
 
 # --- Konten Menu --
@@ -155,6 +155,7 @@ elif menu == "Kirim Pesan":
     df_all = pd.concat([data_excel, pd.DataFrame(st.session_state.manual_data)], ignore_index=True)
     
     if not df_all.empty:
+        st.warning("⚠️ Jangan berpindah tab selama proses pengiriman berlangsung. Tetap di halaman ini sampai semua pesan selesai dikirim!")
         st.subheader("🚀 Kirim Pesan Otomatis")
         if st.button("📨 Mulai Kirim Pesan"):
             with st.spinner("Mengirim pesan..."):
